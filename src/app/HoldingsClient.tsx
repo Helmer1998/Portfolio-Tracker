@@ -30,6 +30,7 @@ export default function HoldingsClient() {
       if (raw) setRows(JSON.parse(raw));
     } catch {}
   }, []);
+
   // save to localStorage
   useEffect(() => {
     try {
@@ -38,8 +39,9 @@ export default function HoldingsClient() {
   }, [rows]);
 
   async function fetchPrice(symbol: string, type: "stock" | "crypto") {
-    const base = process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3000";
-    const r = await fetch(`${base}/api/quote?symbol=${encodeURIComponent(symbol)}&type=${type}`, { cache: "no-store" });
+    const r = await fetch(`/api/quote?symbol=${encodeURIComponent(symbol)}&type=${type}`, {
+      cache: "no-store",
+    });
     const j = await r.json();
     return typeof j.price === "number" ? j.price : null;
   }
@@ -49,12 +51,12 @@ export default function HoldingsClient() {
     for (const h of rows) {
       const price = await fetchPrice(h.symbol, h.type);
       updated.push({ ...h, live: price });
-      await new Promise(res => setTimeout(res, 650)); // be gentle with free API limits
+      await new Promise((res) => setTimeout(res, 650)); // avoid free API rate limits
     }
     setRows(updated);
   }
 
-  // SAFE total calc (ignores rows without a live price)
+  // SAFE total calc (ignore rows without a live price)
   const total = useMemo(() => {
     return rows.reduce((sum, h) => {
       const liveVal = typeof h.live === "number" ? h.live : null;
@@ -66,20 +68,28 @@ export default function HoldingsClient() {
     const qtyNum = Number(adding.qty);
     const avgNum = Number(adding.avg);
     if (!adding.symbol.trim() || !isFinite(qtyNum) || !isFinite(avgNum)) return;
-    setRows(prev => [
+    setRows((prev) => [
       ...prev,
-      { id: crypto.randomUUID(), symbol: adding.symbol.toUpperCase(), type: adding.type, qty: qtyNum, avg: avgNum, live: null },
+      {
+        id: crypto.randomUUID(),
+        symbol: adding.symbol.toUpperCase(),
+        type: adding.type,
+        qty: qtyNum,
+        avg: avgNum,
+        live: null,
+      },
     ]);
     setAdding({ symbol: "", type: "stock", qty: "", avg: "" });
   }
 
   function updateRow(id: string, patch: Partial<Holding>) {
-    setRows(prev => prev.map(r => (r.id === id ? { ...r, ...patch } : r)));
+    setRows((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)));
   }
 
   function removeRow(id: string) {
-    setRows(prev => prev.filter(r => r.id !== id));
+    setRows((prev) => prev.filter((r) => r.id !== id));
   }
+
   function resetAll() {
     setRows(defaultRows);
   }
@@ -95,12 +105,12 @@ export default function HoldingsClient() {
           className="border rounded px-2 py-2"
           placeholder="Symbol (RXRX, BTC)"
           value={adding.symbol}
-          onChange={e => setAdding(a => ({ ...a, symbol: e.target.value }))}
+          onChange={(e) => setAdding((a) => ({ ...a, symbol: e.target.value }))}
         />
         <select
           className="border rounded px-2 py-2"
           value={adding.type}
-          onChange={e => setAdding(a => ({ ...a, type: e.target.value as "stock" | "crypto" }))}
+          onChange={(e) => setAdding((a) => ({ ...a, type: e.target.value as "stock" | "crypto" }))}
         >
           <option value="stock">stock</option>
           <option value="crypto">crypto</option>
@@ -110,14 +120,14 @@ export default function HoldingsClient() {
           placeholder="Qty"
           inputMode="decimal"
           value={adding.qty}
-          onChange={e => setAdding(a => ({ ...a, qty: e.target.value }))}
+          onChange={(e) => setAdding((a) => ({ ...a, qty: e.target.value }))}
         />
         <input
           className="border rounded px-2 py-2"
           placeholder="Avg (USD)"
           inputMode="decimal"
           value={adding.avg}
-          onChange={e => setAdding(a => ({ ...a, avg: e.target.value }))}
+          onChange={(e) => setAdding((a) => ({ ...a, avg: e.target.value }))}
         />
         <button className="border rounded px-3 py-2 hover:bg-gray-50" onClick={addRow}>
           Add holding
@@ -149,24 +159,25 @@ export default function HoldingsClient() {
           </tr>
         </thead>
         <tbody>
-          {rows.map(h => {
+          {rows.map((h) => {
             const hasLive = typeof h.live === "number";
             const liveVal = hasLive ? (h.live as number) : null;
             const pl = liveVal !== null ? (liveVal - h.avg) * h.qty : null;
+
             return (
               <tr key={h.id} className="border-b">
                 <td className="py-2">
                   <input
                     className="border rounded px-1 py-1 w-24"
                     value={h.symbol}
-                    onChange={e => updateRow(h.id, { symbol: e.target.value.toUpperCase() })}
+                    onChange={(e) => updateRow(h.id, { symbol: e.target.value.toUpperCase() })}
                   />
                 </td>
                 <td>
                   <select
                     className="border rounded px-1 py-1"
                     value={h.type}
-                    onChange={e => updateRow(h.id, { type: e.target.value as "stock" | "crypto" })}
+                    onChange={(e) => updateRow(h.id, { type: e.target.value as "stock" | "crypto" })}
                   >
                     <option value="stock">stock</option>
                     <option value="crypto">crypto</option>
@@ -175,3 +186,37 @@ export default function HoldingsClient() {
                 <td>
                   <input
                     className="border rounded px-1 py-1 w-24"
+                    inputMode="decimal"
+                    value={String(h.qty)}
+                    onChange={(e) => updateRow(h.id, { qty: Number(e.target.value) })}
+                  />
+                </td>
+                <td>
+                  <input
+                    className="border rounded px-1 py-1 w-24"
+                    inputMode="decimal"
+                    value={String(h.avg)}
+                    onChange={(e) => updateRow(h.id, { avg: Number(e.target.value) })}
+                  />
+                </td>
+                <td>{liveVal !== null ? `$${liveVal.toFixed(2)}` : "-"}</td>
+                <td className={pl !== null && pl >= 0 ? "text-green-600" : "text-red-600"}>
+                  {pl === null ? "-" : `${pl >= 0 ? "+" : ""}$${pl.toFixed(2)}`}
+                </td>
+                <td>
+                  <button className="text-red-600 hover:underline" onClick={() => removeRow(h.id)}>
+                    delete
+                  </button>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+
+      <p className="mt-3 text-xs opacity-70">
+        Stocks (Alpha Vantage ~5 req/min) · Crypto (CoinGecko). If Live shows “-”, wait a bit and hit Refresh.
+      </p>
+    </main>
+  );
+}
