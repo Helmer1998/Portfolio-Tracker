@@ -6,68 +6,77 @@ type Holding = {
   symbol: string;
   type: "stock" | "crypto";
   qty: number;
-  avg: number; // USD for now
+  avg: number;
   live?: number | null;
 };
+
+type AddingState = { symbol: string; type: "stock" | "crypto"; qty: string; avg: string };
 
 const STORAGE_KEY = "holdings_v1";
 
 const defaultRows: Holding[] = [
-  { id: "1", symbol: "RXRX", type: "stock", qty: 100, avg: 7.48 },
-  { id: "2", symbol: "BTC",  type: "crypto", qty: 0.05, avg: 40000 },
+  { id: "1", symbol: "RXRX", type: "stock", qty: 100, avg: 7.48, live: null },
+  { id: "2", symbol: "BTC",  type: "crypto", qty: 0.05, avg: 40000, live: null },
 ];
 
 export default function HoldingsClient() {
   const [rows, setRows] = useState<Holding[]>(defaultRows);
-  const [adding, setAdding] = useState({ symbol: "", type: "stock" as "stock" | "crypto", qty: "", avg: "" });
+  const [adding, setAdding] = useState<AddingState>({ symbol: "", type: "stock", qty: "", avg: "" });
 
-  // load/save to localStorage
+  // load from localStorage
   useEffect(() => {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) {
-      try { setRows(JSON.parse(raw)); } catch {}
-    }
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) setRows(JSON.parse(raw));
+    } catch {}
   }, []);
+  // save to localStorage
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(rows));
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(rows));
+    } catch {}
   }, [rows]);
 
-  // fetch prices (sequential to be gentle with free API limits)
   async function fetchPrice(symbol: string, type: "stock" | "crypto") {
     const base = process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3000";
-    const r = await fetch(`${base}/api/quote?symbol=${symbol}&type=${type}`, { cache: "no-store" });
+    const r = await fetch(`${base}/api/quote?symbol=${encodeURIComponent(symbol)}&type=${type}`, { cache: "no-store" });
     const j = await r.json();
     return typeof j.price === "number" ? j.price : null;
   }
+
   async function refreshPrices() {
     const updated: Holding[] = [];
     for (const h of rows) {
       const price = await fetchPrice(h.symbol, h.type);
       updated.push({ ...h, live: price });
-      // tiny delay to avoid Alpha Vantage rate limit when hitting stocks
-      await new Promise(res => setTimeout(res, 600));
+      await new Promise(res => setTimeout(res, 650)); // be gentle with free API limits
     }
     setRows(updated);
   }
 
-  const total = useMemo(
-    () => rows.reduce((s, h) => s + (typeof h.live === "number" ? h.live * h.qty : 0), 0),
-    [rows]
-  );
+  // SAFE total calc (ignores rows without a live price)
+  const total = useMemo(() => {
+    return rows.reduce((sum, h) => {
+      const liveVal = typeof h.live === "number" ? h.live : null;
+      return sum + (liveVal !== null ? liveVal * h.qty : 0);
+    }, 0);
+  }, [rows]);
 
   function addRow() {
-    const qty = Number(adding.qty);
-    const avg = Number(adding.avg);
-    if (!adding.symbol.trim() || !isFinite(qty) || !isFinite(avg)) return;
+    const qtyNum = Number(adding.qty);
+    const avgNum = Number(adding.avg);
+    if (!adding.symbol.trim() || !isFinite(qtyNum) || !isFinite(avgNum)) return;
     setRows(prev => [
       ...prev,
-      { id: crypto.randomUUID(), symbol: adding.symbol.toUpperCase(), type: adding.type, qty, avg, live: null },
+      { id: crypto.randomUUID(), symbol: adding.symbol.toUpperCase(), type: adding.type, qty: qtyNum, avg: avgNum, live: null },
     ]);
     setAdding({ symbol: "", type: "stock", qty: "", avg: "" });
   }
+
   function updateRow(id: string, patch: Partial<Holding>) {
     setRows(prev => prev.map(r => (r.id === id ? { ...r, ...patch } : r)));
   }
+
   function removeRow(id: string) {
     setRows(prev => prev.filter(r => r.id !== id));
   }
@@ -78,13 +87,13 @@ export default function HoldingsClient() {
   return (
     <main className="p-6 max-w-5xl mx-auto">
       <h1 className="text-2xl font-bold">Paper Portfolio</h1>
-      <div className="mt-1 text-sm opacity-70">Locally saved to your browser (no login/database yet).</div>
+      <div className="mt-1 text-sm opacity-70">Saved locally in your browser (no login/database yet).</div>
 
       {/* Add row */}
       <div className="mt-4 grid grid-cols-1 sm:grid-cols-5 gap-2">
         <input
           className="border rounded px-2 py-2"
-          placeholder="Symbol (e.g., RXRX, BTC)"
+          placeholder="Symbol (RXRX, BTC)"
           value={adding.symbol}
           onChange={e => setAdding(a => ({ ...a, symbol: e.target.value }))}
         />
@@ -142,7 +151,8 @@ export default function HoldingsClient() {
         <tbody>
           {rows.map(h => {
             const hasLive = typeof h.live === "number";
-            const pl = hasLive ? (h.live - h.avg) * h.qty : null;
+            const liveVal = hasLive ? (h.live as number) : null;
+            const pl = liveVal !== null ? (liveVal - h.avg) * h.qty : null;
             return (
               <tr key={h.id} className="border-b">
                 <td className="py-2">
@@ -165,37 +175,3 @@ export default function HoldingsClient() {
                 <td>
                   <input
                     className="border rounded px-1 py-1 w-24"
-                    inputMode="decimal"
-                    value={h.qty}
-                    onChange={e => updateRow(h.id, { qty: Number(e.target.value) })}
-                  />
-                </td>
-                <td>
-                  <input
-                    className="border rounded px-1 py-1 w-24"
-                    inputMode="decimal"
-                    value={h.avg}
-                    onChange={e => updateRow(h.id, { avg: Number(e.target.value) })}
-                  />
-                </td>
-                <td>{hasLive ? `$${h.live!.toFixed(2)}` : "-"}</td>
-                <td className={pl !== null && pl >= 0 ? "text-green-600" : "text-red-600"}>
-                  {pl === null ? "-" : `${pl >= 0 ? "+" : ""}$${pl.toFixed(2)}`}
-                </td>
-                <td>
-                  <button className="text-red-600 hover:underline" onClick={() => removeRow(h.id)}>
-                    delete
-                  </button>
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-
-      <p className="mt-3 text-xs opacity-70">
-        Note: Alpha Vantage free tier is ~5 requests/min for stocks. If some Live prices are “-”, wait ~30s and hit Refresh.
-      </p>
-    </main>
-  );
-}
