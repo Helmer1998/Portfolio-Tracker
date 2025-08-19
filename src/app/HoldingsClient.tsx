@@ -95,7 +95,7 @@ export default function HoldingsClient() {
   }
 
   return (
-    <main className="p-6 max-w-5xl mx-auto">
+   <main className="p-6 max-w-5xl mx-auto rounded-2xl bg-white/85 backdrop-blur-md shadow-xl ring-1 ring-black/10">
       <h1 className="text-2xl font-bold">Paper Portfolio</h1>
       <div className="mt-1 text-sm opacity-70">Saved locally in your browser (no login/database yet).</div>
 
